@@ -1,0 +1,161 @@
+﻿Company 
+	Manager
+		Address
+			City
+
+commandbuilder
+	addparams(sql, input, type)
+		foreach builder in getParamBuilders(type, input)
+			builder.addParam(command)
+
+	generateSelect(params, type)
+		map = getMap(type)
+		paramBuilders = getParamBuilders(map, input)
+		sql = "select" + join(map.columns) + "where"
+		foreach builder in builders
+			builder.AddCompareSqlAndParam(command, source)
+
+	generateInsert
+		map = getMap(type)
+		builders = getBuilders(type, input)
+		sql = "insert" + map.table + join(map.columns) + "values" + builders.columns
+		foreach builder in builders
+			builder.AddParam(command, source)
+
+	parambuilder
+		propertygetter
+		propertysetter?
+		serializer?
+		columnname
+		AddParameter(command, source)
+		AddAssignment(command, source)
+		AddComparison(command, source)
+
+	propertygetter & propertysetter should use optimized code!
+
+==============================================================================================
+
+Features
+	execute parameterless sql
+	Bulk save
+		dataadapter
+		tvp
+	db generated columns on insert and update
+
+TypeMap
+	Type
+	Table
+	?Factory
+	?SaveOperationProvider
+
+PropertyMapper
+	PropertyName (Name[.Name[.Name]])
+	PropertyType
+	ColumnName
+	ColumnType
+	Id/Value
+	DatabaseGenerated (Insert|Update)
+	?ValueSerializer
+
+ContentMapper
+	Properties?
+	ColumnName
+	ContentSerializer
+
+? BaseTypeMapper
+	Type
+	Table
+	DataSource<T>(columnName, IVM<T> = null)
+	TypeMappers(IDictionary<T,Type>)
+
+==========================================================
+
+void Batch(Action<IBatch> batch)
+void Configure(Action<IConfiguration> config)
+void Execute<T>(string sql, object @params)
+T ExecuteScalar<T>(string sql, object @params)
+IEnumerable<dynamic> Query(string sql, object @params)
+IEnumerable<T> Query<T>(Expression expression)
+IEnumerable<T> Query<T>(string sql, object @params)
+IEnumerable<Raw<T>> QueryRaw<T>(string sql, object @params)
+
+int Save<T>  (IEnumerable<object> @params)
+int Insert<T>(IEnumerable<object> @params)
+int Update<T>(IEnumerable<object> @params)
+int Delete<T>(IEnumerable<object> @params)
+int Save<T>  (object @params)
+int Insert<T>(object @params)
+int Update<T>(object @params)
+int Delete<T>(object @params)
+
+IBatch
+	void Execute(string sql, object @params)
+	T ExecuteScalar<T>(string sql, object @params)
+	IEnumerable<dynamic> Query(string sql, object @params)
+	IQuery<T> Query<T>()
+	IEnumerable<T> Query<T>(string sql, object @params)
+	IEnumerable<Data<T>> QueryData<T>(string sql, object @params)
+
+IConfiguration
+	void AddFactory(IFactory factory)
+	void SetConectionStringProvider(IConnectionStringProvider connectionStringProvider)
+	void AddMappingsFromAssembly(Assembly assembly)
+	void AddMappingsFromAssemblyContainingTypeOf(object o)
+	void AddMappingsFromAssemblyContaining(Type type)
+	void AddMappingsFromAssemblyContaining<T>()
+	void AddMapping(IMap map)
+
+interface IMap
+	void Execute(IConfiguration configuration)
+	
+abstract class Map<T> : IMap
+	ctor
+		Table(typeof(T).Name)
+	void Table(string name, string @namespace = "dbo")
+	void Id<R>(Expression<Func<T,R>> expression, string column = null)
+	void Value<R>(Expression<Func<T,R>> expression, string column = null, IValueSerializer<R> serializer = null)
+	void Child<R>(Expression<Func<T,R>> expression, Action<ChildMap<R>> action)
+	void Content(string column, IContentSerializer serializer)
+
+interface IValueSerializer<T>
+	Type SqlType { get; }
+	object Serialize(T input)
+	T Deserialize(object input)
+
+interface IContentSerializer<T>
+	Type SqlType { get; }
+	object Serialize(T item)
+	void Deserialize(object data, T item)
+
+sealed class ChildMap<R>
+	void Id<R>(Expression<Func<T,R>> expression, string column = null)
+	void Value<R>(Expression<Func<T,R>> expression, string column = null, IValueSerializer<R> serializer = null)
+
+abstract class BaseTypeMap<TBase>
+	void AddType<T>()
+	void TypeSelector(ITypeSelector selector)
+
+abstract class Map<T, TBase> : Map<T> where T : TBase
+	void SwitchOn(string[] columns)
+	abstract bool CanMap(object[] data);
+
+======================================================
+
+class EstimateMap : Map<Estimate>
+	ctor
+		Id(x => x.Id);
+		Value(x => x.Created);
+		Child(x => x.Vehicle, x => x.Value(y => y.Mileage));
+
+abstract class MessageMap<T> : Map<T, Message> where T : Message
+	ctor
+		Id(x => x.Id);
+		Content("Body", new MessageBodySerializer());
+		SwitchOn("MessageType");
+	bool CanMap(object[] data)
+		return CanMap(data.Cast<MessageType>().Single());
+	abstract bool CanMap(MessageType messageType);
+
+class EstimateReplyMap : MessageMap<EstimateReply>
+	bool CanMap(MessageType messageType)
+		return messageType == MessageType.EstimateReply;
