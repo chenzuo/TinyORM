@@ -50,6 +50,7 @@
     <Compile Include="ExpandoObjectMapper.cs" />
     <Compile Include="IConnectionStringProvider.cs" />
     <Compile Include="IDatabase.cs" />
+    <Compile Include="IDatabaseEngine.cs" />
     <Compile Include="IDatabaseSession.cs" />
     <Compile Include="IInstanceFactory.cs" />
     <Compile Include="DefaultInstanceFactory.cs" />
