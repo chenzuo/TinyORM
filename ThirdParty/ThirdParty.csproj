@@ -44,6 +44,8 @@
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>
+    <Content Include="NSubstitute\NSubstitute.dll" />
+    <Content Include="NSubstitute\NSubstitute.XML" />
     <Content Include="NUnit\nunit.framework.dll" />
     <Content Include="NUnit\nunit.framework.xml" />
   </ItemGroup>

@@ -41,7 +41,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Column.cs" />
-    <Compile Include="CommandBuilder.cs" />
+    <Compile Include="CommandBuilder_old.cs" />
     <Compile Include="Database.cs" />
     <Compile Include="DatabaseConfiguration.cs" />
     <Compile Include="DatabaseConfigurationBuilder.cs" />

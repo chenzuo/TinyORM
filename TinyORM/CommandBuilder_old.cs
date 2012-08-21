@@ -4,13 +4,13 @@ using System.Data;
 
 namespace TinyORM
 {
-	public class CommandBuilder
+	public class CommandBuilder_old
 	{
 		private readonly IDbCommand _command;
 		private readonly TypeConfiguration _configuration;
 		private IDictionary<string, List<PropertyGetter>> _cache;
 
-		public CommandBuilder(IDbCommand command, TypeConfiguration configuration)
+		public CommandBuilder_old(IDbCommand command, TypeConfiguration configuration)
 		{
 			_command = command;
 			_configuration = configuration;
