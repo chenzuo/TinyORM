@@ -3,7 +3,15 @@ using System.Collections.Generic;
 
 namespace TinyORM
 {
-	public class TypeMap
+	public interface ITypeMap
+	{
+		Type Type { get; }
+		string Table { get; }
+		string Namespace { get; }
+		IEnumerable<PropertyMap> Properties { get; }
+	}
+
+	public class TypeMap : ITypeMap
 	{
 		public TypeMap()
 		{
@@ -14,5 +22,10 @@ namespace TinyORM
 		public string Table { get; set; }
 		public string Namespace { get; set; }
 		public List<PropertyMap> Properties { get; private set; }
+
+		IEnumerable<PropertyMap> ITypeMap.Properties
+		{
+			get { return Properties; }
+		}
 	}
 }

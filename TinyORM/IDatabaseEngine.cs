@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.SqlClient;
 using System.Linq;
 
 namespace TinyORM
@@ -107,7 +108,7 @@ namespace TinyORM
 		private IEnumerable<object> GetParameterSources(object @params)
 		{
 			if (@params == null)
-				return new[] { new object() };
+				return new[] { NoParameters.Instance };
 
 			var dataParameters = @params as IEnumerable<IDataParameter>;
 			if (dataParameters != null)
@@ -118,204 +119,313 @@ namespace TinyORM
 		}
 	}
 
+	internal class NoParameters
+	{
+		public static readonly NoParameters Instance = new NoParameters();
+
+		private NoParameters() { }
+	}
+
 	internal interface ICommandFactory
 	{
-		IDatabaseCommand CreateSelectCommand<T>(IEnumerable<object> parameterSources);
+		IDatabaseCommand CreateSelectCommand<T>(object parameterSource);
 		IEnumerable<IDatabaseCommand> CreateInsertCommands<T>(IEnumerable<object> parameterSources);
-		IEnumerable<IDatabaseCommand> CreateUpdateCommands<T>(IEnumerable<object> parameterSource);
-		IEnumerable<IDatabaseCommand> CreateDeleteCommands<T>(IEnumerable<object> parameterSource);
-		IEnumerable<IDatabaseCommand> CreateExecuteCommands(string sql, IEnumerable<object> parameterSources, Type type = null);
+		IEnumerable<IDatabaseCommand> CreateUpdateCommands<T>(IEnumerable<object> parameterSources);
+		IEnumerable<IDatabaseCommand> CreateDeleteCommands<T>(IEnumerable<object> parameterSources);
+		IEnumerable<IDatabaseCommand> CreateExecuteCommands(string sql, IEnumerable<object> parameterSources, Type mapType = null);
 	}
 
 	internal class CommandFactory : ICommandFactory
 	{
-		public IDatabaseCommand CreateSelectCommand<T>(IEnumerable<object> parameterSources)
+		public IDatabaseCommand CreateSelectCommand<T>(object parameterSource)
 		{
-			var typeMap = GetTypeMapFor<T>();
-			var commandBuilders = GetCommandBuilders(parameterSource);
-			var sql = SqlGenerator.GenerateSelect(typeMap, commandBuilders);
+			var typeMap = GetTypeMap(typeof(T));
+			var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
+			var where = string.Join(", ", commandBuilders.Select(x => x.GetSql()));
+			var sql = SqlBuilder.GetSelect(typeMap, where);
 			var parameters = commandBuilders.SelectMany(x => x.GetParameters());
 			return new DatabaseCommand(sql, parameters);
 		}
 
 		public IEnumerable<IDatabaseCommand> CreateInsertCommands<T>(IEnumerable<object> parameterSources)
 		{
-			var typeMap = GetTypeMapFor<T>();
-			var sql = SqlGenerator.GenerateInsert(typeMap);
+			var typeMap = GetTypeMap(typeof(T));
+			var sql = SqlBuilder.GetInsert(typeMap);
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource);
+				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
 				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
-				var afterInsertActions = commandBuilders.Select(x => x.GetAfterInsertAction()).Where(x => x != null);
-				yield return new DatabaseCommand(sql, parameters, afterInsertActions);
+				//var afterInsertActions = commandBuilders.Select(x => x.GetAfterInsertAction()).Where(x => x != null);
+				//yield return new DatabaseCommand(sql, parameters, afterInsertActions);
+				yield return new DatabaseCommand(sql, parameters);
 			}
 		}
 
-		public IEnumerable<IDatabaseCommand> CreateUpdateCommands<T>(IEnumerable<object> parameterSource)
+		public IEnumerable<IDatabaseCommand> CreateUpdateCommands<T>(IEnumerable<object> parameterSources)
 		{
-			var typeMap = GetTypeMapFor<T>();
-			var sql = SqlGenerator.GenerateUpdate(typeMap);
+			var typeMap = GetTypeMap(typeof(T));
+			var sql = SqlBuilder.GetUpdate(typeMap);
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource);
+				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
 				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
-				var afterUpdateActions = commandBuilders.Select(x => x.GetAfterUpdateAction()).Where(x => x != null);
-				yield return new DatabaseCommand(sql, parameters, afterUpdateActions);
+				//var afterUpdateActions = commandBuilders.Select(x => x.GetAfterUpdateAction()).Where(x => x != null);
+				//yield return new DatabaseCommand(sql, parameters, afterUpdateActions);
+				yield return new DatabaseCommand(sql, parameters);
 			}
 		}
 
-		public IEnumerable<IDatabaseCommand> CreateDeleteCommands<T>(IEnumerable<object> parameterSource)
+		public IEnumerable<IDatabaseCommand> CreateDeleteCommands<T>(IEnumerable<object> parameterSources)
 		{
-			throw new NotImplementedException();
-		}
-
-		public IEnumerable<IDatabaseCommand> CreateExecuteCommands(string sql, IEnumerable<object> parameterSources, Type type = null)
-		{
-			var typeMap = GetTypeMapFor<T>();
+			var typeMap = GetTypeMap(typeof(T));
+			var sql = SqlBuilder.GetDelete(typeMap);
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource);
+				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
+				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
+				yield return new DatabaseCommand(sql, parameters);
+			}
+		}
+
+		public IEnumerable<IDatabaseCommand> CreateExecuteCommands(string sql, IEnumerable<object> parameterSources, Type mapType = null)
+		{
+			parameterSources = parameterSources as ICollection<object> ?? parameterSources.ToList();
+
+			var typeMap = GetTypeMap(mapType ?? parameterSources.First().GetType());
+			foreach (var parameterSource in parameterSources)
+			{
+				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
 				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
 				var cmdSql = commandBuilders.Aggregate(sql, (current, commandBuilder) => commandBuilder.UpdateSql(current));
 				yield return new DatabaseCommand(cmdSql, parameters);
 			}
 		}
 
-		protected ISqlGenerator SqlGenerator
+		protected ISqlBuilder SqlBuilder
 		{
 			get { throw new NotImplementedException(); }
 		}
 
-		private TypeMap GetTypeMapFor<T>()
+		private TypeMap GetTypeMap(Type type)
 		{
 			throw new NotImplementedException();
 		}
 
 		private IEnumerable<ICommandBuilder> GetCommandBuilders(object parameterSource, TypeMap typeMap)
 		{
-			throw new NotImplementedException();
+			return new CommandBuilderFactory(typeMap).GetCommandBuilders(parameterSource).ToList();
 		}
+	}
+
+	internal class CommandBuilderFactory
+	{
+		private readonly TypeMap _typeMap;
+
+		public CommandBuilderFactory(TypeMap typeMap)
+		{
+			_typeMap = typeMap;
+		}
+
+		public IEnumerable<ICommandBuilder> GetCommandBuilders(object source)
+		{
+			return source.GetType() == _typeMap.Type
+						 ? GetFromSourceMatchingTypeMap(source)
+						 : GetFromAdHocSource(source);
+		}
+
+		private IEnumerable<ICommandBuilder> GetFromSourceMatchingTypeMap(object source)
+		{
+			return _typeMap.Properties.Select(x => CreateCommandBuilder(source, x.PropertyName, x));
+		}
+
+		private IEnumerable<ICommandBuilder> GetFromAdHocSource(object source)
+		{
+			var sourceType = source.GetType();
+			var propertyMaps = _typeMap.Properties.ToDictionary(x => x.PropertyName.Replace(".", "").ToLower());
+
+			foreach (var property in sourceType.GetProperties())
+			{
+				if (property.PropertyType == _typeMap.Type)
+				{
+					var getter = PropertyGetter.Create(sourceType, property.Name);
+					foreach (var commandBuilder in GetFromSourceMatchingTypeMap(getter.Get(source)))
+						yield return commandBuilder;
+					continue;
+				}
+
+				PropertyMap propertyMap;
+				if (!propertyMaps.TryGetValue(property.Name.ToLower(), out propertyMap))
+					continue;
+
+				yield return CreateCommandBuilder(source, property.Name, propertyMap);
+			}
+		}
+
+		private ICommandBuilder CreateCommandBuilder(object source, string propertyName, PropertyMap propertyMap)
+		{
+			var value = PropertyGetter.Create(source.GetType(), propertyName).Get(source);
+			var dataParameterBuilder = value as IParameterBuilder ?? new EqualToParameterBuilder(value);
+			return new CommandBuilder(propertyMap, dataParameterBuilder);
+		}
+	}
+
+	public interface ICommandBuilder
+	{
+		IEnumerable<IDataParameter> GetParameters();
+		string GetSql();
+		string UpdateSql(string sql);
 	}
 
 	internal class CommandBuilder : ICommandBuilder
 	{
-		private readonly string _sql;
-
-		public CommandBuilder(string sql)
-		{
-			_sql = sql;
-		}
-
-		public void AddParameters()
-		{
-			throw new NotImplementedException();
-		}
-
-		public void AddParametersAndWhereSql()
-		{
-			throw new NotImplementedException();
-		}
-
-		public IDatabaseCommand CreateCommand()
-		{
-			throw new NotImplementedException();
-		}
-	}
-
-	internal interface ICommandBuilder
-	{
-		void AddParameters();
-		void AddParametersAndWhereSql();
-	}
-
-	//internal class CommandBuilder
-	//{
-	//	public PropertyGetter Getter { get; set; }
-	//	public IValueSerializer ValueSerializer { get; set; }
-	//	public string ColumnName { get; set; }
-	//	public IParameterBuilder ParameterBuilder { get; set; }
-	//}
-
-	internal interface IParameterFactory
-	{
-		void AddParameters(ICommandBuilder commandBuilder);
-		void AddParametersAndWhereSql(ICommandBuilder commandBuilder);
-	}
-
-	internal class ParameterFactory : IParameterFactory
-	{
-		private readonly string _name;
+		private readonly IPropertyMap _propertyMap;
 		private readonly IParameterBuilder _parameterBuilder;
 
-		public void AddParameters(ICommandBuilder commandBuilder)
+		public CommandBuilder(IPropertyMap propertyMap, IParameterBuilder parameterBuilder)
+		{
+			_propertyMap = propertyMap;
+			_parameterBuilder = parameterBuilder;
+		}
+
+		public IEnumerable<IDataParameter> GetParameters()
+		{
+			return _parameterBuilder.GetParameters(_propertyMap.ColumnName);
+		}
+
+		public string GetSql()
 		{
 			throw new NotImplementedException();
 		}
 
-		public void AddParametersAndWhereSql(ICommandBuilder commandBuilder)
+		public string UpdateSql(string sql)
 		{
 			throw new NotImplementedException();
 		}
 	}
 
-	internal interface IParameterBuilder
+	public interface ISqlBuilder
 	{
-		void AddParameters(ICommandBuilder commandBuilder, Column column, IValueSerializer valueSerializer = null);
-		void AddParametersAndWhereSql(ICommandBuilder commandBuilder, Column column, IValueSerializer valueSerializer = null);
+		string GetSelect(TypeMap typeMap, string commandBuilders);
+		string GetInsert(TypeMap typeMap);
+		string GetUpdate(TypeMap typeMap);
+		string GetDelete(TypeMap typeMap);
+	}
+
+	public interface IParameterBuilder
+	{
+		IEnumerable<IDataParameter> GetParameters(string name);
+		string GetSql(string name);
+		string UpdateSql(string sql, string name);
 	}
 
 	internal abstract class ParameterBuilder : IParameterBuilder
 	{
-		public virtual void AddParameters(ICommandBuilder commandBuilder, Column column, IValueSerializer valueSerializer = null)
+		protected readonly object Value;
+
+		protected ParameterBuilder(object value)
 		{
-			var parameters = GetParameters(valueSerializer);
-			commandBuilder.AddParameters();
+			Value = value;
 		}
 
-		private IEnumerable<IDataParameter> GetParameters(IValueSerializer valueSerializer = null)
+		public virtual IEnumerable<IDataParameter> GetParameters(string name)
 		{
-			throw new NotImplementedException();
+			yield return CreateParameter(name, Value);
 		}
 
-		public abstract void AddParametersAndWhereSql(ICommandBuilder commandBuilder, Column column, IValueSerializer valueSerializer = null)
+		protected static SqlParameter CreateParameter(string name, object value)
 		{
-			AddParameters(commandBuilder, column, valueSerializer);
-			commandBuilder.
+			return new SqlParameter(name, value);
+		}
+
+		protected static string GetParameterName(string name)
+		{
+			return "@" + name;
+		}
+
+		public virtual string UpdateSql(string sql, string name)
+		{
+			return sql;
+		}
+
+		public abstract string GetSql(string name);
+	}
+
+	internal class EqualToParameterBuilder : ParameterBuilder
+	{
+		public EqualToParameterBuilder(object value)
+			: base(value)
+		{ }
+
+		public override string GetSql(string name)
+		{
+			return string.Format("{0} = {1}", name, GetParameterName(name));
 		}
 	}
 
-	public class EqualToParameterBuilder : ParameterBuilder
-	{ }
-
-	internal class SelectSqlBuilder
+	internal class NotEqualToParameterBuilder : ParameterBuilder
 	{
-		private readonly string _sql;
-		private readonly IList<string> _where;
+		public NotEqualToParameterBuilder(object value)
+			: base(value)
+		{ }
 
-		public SelectSqlBuilder(TypeMap typeMap)
+		public override string GetSql(string name)
 		{
-			var columns = string.Join(", ", typeMap.Properties.Select(x => "[" + x.ColumnName + "]"));
-			_sql = string.Format("select {0} from [{1}].[{1}]", columns, typeMap.Namespace, typeMap.Table);
-			_where = new List<string>();
+			return string.Format("{0} != {1}", name, GetParameterName(name));
+		}
+	}
+
+	internal class InParameterBuilder<T> : ParameterBuilder
+	{
+		private readonly ICollection<T> _collection;
+
+		public InParameterBuilder(IEnumerable<T> collection)
+			: base(collection)
+		{
+			_collection = collection.ToList();
 		}
 
-		public void Where(string condition)
+		public override IEnumerable<IDataParameter> GetParameters(string name)
 		{
+			var index = 0;
+			return from value in _collection
+					 let parameterName = string.Format("{0}_{1}", GetParameterName(name), index++)
+					 select CreateParameter(parameterName, value);
+		}
 
+		public override string GetSql(string name)
+		{
+			return string.Format("{0} in ({1})", name, GetParameterNames(name));
+		}
+
+		public override string UpdateSql(string sql, string name)
+		{
+			return sql.Replace(GetParameterName(name), GetParameterNames(name));
+		}
+
+		private string GetParameterNames(string name)
+		{
+			var parameterNames = from index in Enumerable.Range(0, _collection.Count)
+										select string.Format("{0}_{1}", GetParameterName(name), index);
+			return string.Join(", ", parameterNames);
 		}
 	}
 
 	internal interface ISqlGenerator
 	{
-		string GenerateSelect(TypeMap typeMap);
-		string GenerateInsert(TypeMap typeMap);
-		string GenerateUpdate(TypeMap typeMap);
-		string GenerateDelete(TypeMap typeMap);
+		string GenerateSelect(ITypeMap typeMap);
+		string GenerateInsert(ITypeMap typeMap);
+		string GenerateUpdate(ITypeMap typeMap);
+		string GenerateDelete(ITypeMap typeMap);
 	}
 
 	internal class SqlGenerator : ISqlGenerator
 	{
-		public string GenerateInsert(TypeMap typeMap)
+		public string GenerateSelect(ITypeMap typeMap)
+		{
+			throw new NotImplementedException();
+		}
+
+		public string GenerateInsert(ITypeMap typeMap)
 		{
 			var propertyMaps = typeMap.Properties;
 			return string.Format("insert into {0} ({1}) values ({2})",
@@ -324,7 +434,7 @@ namespace TinyORM
 										string.Join(", ", propertyMaps.Select(x => "@" + x.ColumnName)));
 		}
 
-		public string GenerateUpdate(TypeMap typeMap)
+		public string GenerateUpdate(ITypeMap typeMap)
 		{
 			var propertyMaps = typeMap.Properties;
 			var keys = propertyMaps.Where(x => x.IsPrimaryKey);
@@ -335,7 +445,7 @@ namespace TinyORM
 										GetColumnEqualsParameter(keys));
 		}
 
-		public string GenerateDelete(TypeMap typeMap)
+		public string GenerateDelete(ITypeMap typeMap)
 		{
 			var propertyMaps = typeMap.Properties;
 			var keys = propertyMaps.Where(x => x.IsPrimaryKey);
@@ -344,7 +454,7 @@ namespace TinyORM
 										GetColumnEqualsParameter(keys));
 		}
 
-		private static string GetSchemaAndTable(TypeMap typeMap)
+		private static string GetSchemaAndTable(ITypeMap typeMap)
 		{
 			return string.Format("{0}.{1}", Enclose(typeMap.Namespace), Enclose(typeMap.Table));
 		}
@@ -367,10 +477,33 @@ namespace TinyORM
 
 	internal class DatabaseCommand : IDatabaseCommand
 	{
+		public DatabaseCommand(string sql, IEnumerable<IDataParameter> parameters)
+		{
+			throw new NotImplementedException();
+		}
+
 		public int Execute(IDbConnection connection)
 		{
 			var dbCommand = connection.CreateCommand();
 			return dbCommand.ExecuteNonQuery();
+		}
+	}
+
+	public static class Is
+	{
+		public static IParameterBuilder EqualTo(object value)
+		{
+			return new EqualToParameterBuilder(value);
+		}
+
+		public static IParameterBuilder NotEqualTo(object value)
+		{
+			return new NotEqualToParameterBuilder(value);
+		}
+
+		public static IParameterBuilder In<T>(IEnumerable<T> collection)
+		{
+			return new InParameterBuilder<T>(collection);
 		}
 	}
 }
