@@ -10,7 +10,90 @@ namespace TinyORM
 {
 	public interface IDatabase : IDatabaseEngine
 	{
-		void COnfigure(Action<DatabaseConfigurationBuilder> action);
+		void Configure(Action<DatabaseConfigurationBuilder> action);
+		void ValidateConfiguration();
+	}
+
+	public class Database : IDatabase
+	{
+		private static IDatabase _instance;
+		private readonly DatabaseConfiguration _configuration = new DatabaseConfiguration();
+
+		public static IDatabase Instance
+		{
+			get { return _instance ?? (_instance = new Database()); }
+		}
+
+		public void Configure(Action<DatabaseConfigurationBuilder> action)
+		{
+			var expression = new DatabaseConfigurationBuilder(_configuration);
+			action(expression);
+		}
+
+		public void ValidateConfiguration()
+		{
+			throw new NotImplementedException();
+		}
+
+		public void Execute(Action<IDatabaseSession> action)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				action(session);
+		}
+
+		public int Execute(string sql, object @params = null)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Execute(sql, @params);
+		}
+
+		public IEnumerable<dynamic> Query(string sql, object @params = null)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Query(sql, @params).ToList();
+		}
+
+		public IEnumerable<T> Query<T>(string sql, object @params = null)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Query<T>(sql, @params).ToList();
+		}
+
+		public IEnumerable<T> Query<T>(object @params = null)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Query<T>(@params).ToList();
+		}
+
+		public int Execute<TMap>(string sql, object @params = null)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Execute<TMap>(sql, @params);
+		}
+
+		public int Save<TMap>(object @params)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Save<TMap>(@params);
+		}
+
+		public int Insert<TMap>(object @params)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Insert<TMap>(@params);
+		}
+
+		public int Update<TMap>(object @params)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Update<TMap>(@params);
+		}
+
+		public int Delete<TMap>(object @params)
+		{
+			using (var session = new DatabaseSession(_configuration))
+				return session.Delete<TMap>(@params);
+		}
 	}
 
 	public interface IDatabaseEngine : IDatabaseSession
@@ -36,18 +119,32 @@ namespace TinyORM
 		int Delete<TMap>(object @params);
 	}
 
-	internal class DatabaseSession : IDatabaseSession
+	internal class DatabaseSession : IDatabaseSession, IDisposable
 	{
-		private MapConfiguration _configuration;
+		private readonly DatabaseConfiguration _configuration;
+		private IDbConnection _connection;
+
+		public DatabaseSession(DatabaseConfiguration configuration)
+		{
+			_configuration = configuration;
+		}
 
 		private IDbConnection GetConnection()
 		{
-			throw new NotImplementedException();
+			if (_connection == null)
+			{
+				var connectionString = _configuration.ConnectionStringProvider.GetConnectionString();
+				var connection = new SqlConnection(connectionString);
+				connection.Open();
+				_connection = connection;
+			}
+
+			return _connection;
 		}
 
 		protected ICommandFactory Factory
 		{
-			get { throw new NotImplementedException(); }
+			get { return new CommandFactory(_configuration); }
 		}
 
 		private SaveGrouping GroupBySaveOperation(IEnumerable<object> parameterSources)
@@ -104,25 +201,29 @@ namespace TinyORM
 
 		public IEnumerable<dynamic> Query(string sql, object @params = null)
 		{
-			var command = Factory.CreateSelectCommand<ExpandoObject>(@params, sql);
-			return Query<dynamic>(command);
+			var parameterSource = GetParameterSource(@params);
+			var command = Factory.CreateSelectCommand<ExpandoObject>(@parameterSource, sql);
+			return Query<ExpandoObject>(command);
 		}
 
 		public IEnumerable<T> Query<T>(string sql, object @params = null)
 		{
-			var command = Factory.CreateSelectCommand<T>(@params, sql);
+			var parameterSource = GetParameterSource(@params);
+			var command = Factory.CreateSelectCommand<T>(@parameterSource, sql);
 			return Query<T>(command);
 		}
 
 		public IEnumerable<DataEntityTuple<T>> QueryData<T>(string sql, object @params = null)
 		{
-			var command = Factory.CreateSelectCommand<T>(@params, sql);
+			var parameterSource = GetParameterSource(@params);
+			var command = Factory.CreateSelectCommand<T>(@parameterSource, sql);
 			return Query<DataEntityTuple<T>>(command);
 		}
 
 		public IEnumerable<T> Query<T>(object @params = null)
 		{
-			var command = Factory.CreateSelectCommand<T>(@params);
+			var parameterSource = GetParameterSource(@params);
+			var command = Factory.CreateSelectCommand<T>(@parameterSource);
 			return Query<T>(command);
 		}
 
@@ -178,7 +279,12 @@ namespace TinyORM
 			return Execute(commands);
 		}
 
-		private IEnumerable<object> GetParameterSources(object @params)
+		private static object GetParameterSource(object @params)
+		{
+			return @params as IEnumerable<IDataParameter> ?? @params ?? NoParameters.Instance;
+		}
+
+		private static IEnumerable<object> GetParameterSources(object @params)
 		{
 			if (@params == null)
 				return new[] { NoParameters.Instance };
@@ -195,6 +301,12 @@ namespace TinyORM
 		{
 			var connection = GetConnection();
 			return commands.Sum(x => x.Execute(connection));
+		}
+
+		public void Dispose()
+		{
+			if (_connection != null)
+				_connection.Dispose();
 		}
 	}
 
@@ -216,32 +328,35 @@ namespace TinyORM
 
 	internal class CommandFactory : ICommandFactory
 	{
+		private readonly MapConfiguration _configuration;
+
+		public CommandFactory(MapConfiguration configuration)
+		{
+			_configuration = configuration;
+		}
+
 		public IQueryCommand CreateSelectCommand<TMap>(object parameterSource, string sql = null)
 		{
 			var typeMap = GetTypeMap(typeof(TMap));
-			var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
+			var parameterBuilders = GetParameterBuilders(parameterSource, typeMap).ToList();
 			var includedColumns = typeof(TMap) == typeof(ExpandoObject) ||
 										 typeof(TMap).IsAssignableFrom(typeof(DataEntityTuple<>))
-											 ? IncludedColumns.All
-											 : IncludedColumns.Mapped;
+											 ? SqlBuilderColumns.All
+											 : SqlBuilderColumns.Mapped;
 
 			if (sql != null)
 			{
-				sql = commandBuilders.Aggregate(sql, (current, commandBuilder) => commandBuilder.UpdateSql(current));
+				sql = parameterBuilders.Aggregate(sql, (current, commandBuilder) => commandBuilder.UpdateSql(current));
 			}
 			else
 			{
-				var where = string.Join(", ", commandBuilders.Select(x => x.GetSql()));
+				var where = string.Join(", ", parameterBuilders.Select(x => x.GetSql()));
 				sql = SqlBuilder.GetSelect(typeMap, includedColumns, @where);
 			}
 
-			var parameters = commandBuilders.SelectMany(x => x.GetParameters());
-
-			//------------------------------------------------------------------------------
-			//--  ToDo  --------------------------------------------------------------------
-			//------------------------------------------------------------------------------
-
-			return new QueryCommand(sql, parameters);
+			var parameters = parameterBuilders.SelectMany(x => x.GetParameters());
+			var instanceMapperProvider = new InstanceMapperProvider(_configuration);
+			return new QueryCommand(sql, parameters, instanceMapperProvider);
 		}
 
 		public IEnumerable<IExecuteCommand> CreateInsertCommands<TMap>(IEnumerable<object> parameterSources)
@@ -250,8 +365,8 @@ namespace TinyORM
 			var sql = SqlBuilder.GetInsert(typeMap);
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
-				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
+				var parameterBuilders = GetParameterBuilders(parameterSource, typeMap).ToList();
+				var parameters = parameterBuilders.SelectMany(x => x.GetParameters());
 				//var afterInsertActions = commandBuilders.Select(x => x.GetAfterInsertAction()).Where(x => x != null);
 				//yield return new ExecuteCommand(sql, parameters, afterInsertActions);
 				yield return new ExecuteCommand(sql, parameters);
@@ -264,8 +379,8 @@ namespace TinyORM
 			var sql = SqlBuilder.GetUpdate(typeMap);
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
-				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
+				var parameterBuilders = GetParameterBuilders(parameterSource, typeMap).ToList();
+				var parameters = parameterBuilders.SelectMany(x => x.GetParameters());
 				//var afterUpdateActions = commandBuilders.Select(x => x.GetAfterUpdateAction()).Where(x => x != null);
 				//yield return new ExecuteCommand(sql, parameters, afterUpdateActions);
 				yield return new ExecuteCommand(sql, parameters);
@@ -278,64 +393,62 @@ namespace TinyORM
 			var sql = SqlBuilder.GetDelete(typeMap);
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
-				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
+				var parameterBuilders = GetParameterBuilders(parameterSource, typeMap).ToList();
+				var parameters = parameterBuilders.SelectMany(x => x.GetParameters());
 				yield return new ExecuteCommand(sql, parameters);
 			}
 		}
 
 		public IEnumerable<IExecuteCommand> CreateExecuteCommands(string sql, IEnumerable<object> parameterSources, Type mapType = null)
 		{
-			parameterSources = parameterSources as ICollection<object> ?? parameterSources.ToList();
-
 			var typeMap = GetTypeMap(mapType ?? parameterSources.First().GetType());
 			foreach (var parameterSource in parameterSources)
 			{
-				var commandBuilders = GetCommandBuilders(parameterSource, typeMap).ToList();
-				var parameters = commandBuilders.SelectMany(x => x.GetParameters());
-				var cmdSql = commandBuilders.Aggregate(sql, (current, commandBuilder) => commandBuilder.UpdateSql(current));
+				var parameterBuilders = GetParameterBuilders(parameterSource, typeMap).ToList();
+				var parameters = parameterBuilders.SelectMany(x => x.GetParameters());
+				var cmdSql = parameterBuilders.Aggregate(sql, (current, commandBuilder) => commandBuilder.UpdateSql(current));
 				yield return new ExecuteCommand(cmdSql, parameters);
 			}
 		}
 
 		protected ISqlBuilder SqlBuilder
 		{
-			get { throw new NotImplementedException(); }
+			get { return new SqlBuilder(); }
 		}
 
 		private TypeMap GetTypeMap(Type type)
 		{
-			throw new NotImplementedException();
+			return _configuration.Types.GetOrCreate(type);
 		}
 
-		private IEnumerable<ICommandBuilder> GetCommandBuilders(object parameterSource, TypeMap typeMap)
+		private IEnumerable<IParameterBuilder> GetParameterBuilders(object parameterSource, TypeMap typeMap)
 		{
-			return new CommandBuilderFactory(typeMap).GetCommandBuilders(parameterSource).ToList();
+			return new ParameterBuilderFactory(typeMap).GetCommandBuilders(parameterSource);
 		}
 	}
 
-	internal class CommandBuilderFactory
+	internal class ParameterBuilderFactory
 	{
 		private readonly TypeMap _typeMap;
 
-		public CommandBuilderFactory(TypeMap typeMap)
+		public ParameterBuilderFactory(TypeMap typeMap)
 		{
 			_typeMap = typeMap;
 		}
 
-		public IEnumerable<ICommandBuilder> GetCommandBuilders(object source)
+		public IEnumerable<IParameterBuilder> GetCommandBuilders(object source)
 		{
 			return source.GetType() == _typeMap.Type
 						 ? GetFromSourceMatchingTypeMap(source)
 						 : GetFromAdHocSource(source);
 		}
 
-		private IEnumerable<ICommandBuilder> GetFromSourceMatchingTypeMap(object source)
+		private IEnumerable<IParameterBuilder> GetFromSourceMatchingTypeMap(object source)
 		{
-			return _typeMap.Properties.Select(x => CreateCommandBuilder(source, x.PropertyName, x));
+			return _typeMap.Properties.Select(x => CreateParameterBuilder(source, x.PropertyName, x));
 		}
 
-		private IEnumerable<ICommandBuilder> GetFromAdHocSource(object source)
+		private IEnumerable<IParameterBuilder> GetFromAdHocSource(object source)
 		{
 			var sourceType = source.GetType();
 			var propertyMaps = _typeMap.Properties.ToDictionary(x => x.PropertyName.Replace(".", "").ToLower());
@@ -354,79 +467,79 @@ namespace TinyORM
 				if (!propertyMaps.TryGetValue(property.Name.ToLower(), out propertyMap))
 					continue;
 
-				yield return CreateCommandBuilder(source, property.Name, propertyMap);
+				yield return CreateParameterBuilder(source, property.Name, propertyMap);
 			}
 		}
 
-		private ICommandBuilder CreateCommandBuilder(object source, string propertyName, PropertyMap propertyMap)
+		private IParameterBuilder CreateParameterBuilder(object source, string propertyName, PropertyMap propertyMap)
 		{
 			var value = PropertyGetter.Create(source.GetType(), propertyName).Get(source);
-			var dataParameterBuilder = value as IParameterBuilder ?? new SingleParameterBuilder("=", value);
-			return new CommandBuilder(propertyMap, dataParameterBuilder);
+			var dataParameterBuilder = value as IParameterFactory ?? new SingleParameterFactory("=", value);
+			return new ParameterBuilder(propertyMap, dataParameterBuilder);
 		}
 	}
 
-	public interface ICommandBuilder
+	public interface IParameterBuilder
 	{
 		IEnumerable<IDataParameter> GetParameters();
 		string GetSql();
 		string UpdateSql(string sql);
 	}
 
-	internal class CommandBuilder : ICommandBuilder
+	internal class ParameterBuilder : IParameterBuilder
 	{
 		private readonly IPropertyMap _propertyMap;
-		private readonly IParameterBuilder _parameterBuilder;
+		private readonly IParameterFactory _parameterFactory;
 
-		public CommandBuilder(IPropertyMap propertyMap, IParameterBuilder parameterBuilder)
+		public ParameterBuilder(IPropertyMap propertyMap, IParameterFactory parameterFactory)
 		{
 			_propertyMap = propertyMap;
-			_parameterBuilder = parameterBuilder;
+			_parameterFactory = parameterFactory;
 		}
 
 		public IEnumerable<IDataParameter> GetParameters()
 		{
-			return _parameterBuilder.GetParameters(_propertyMap.ColumnName);
+			return _parameterFactory.GetParameters(_propertyMap.ColumnName);
 		}
 
 		public string GetSql()
 		{
-			return _parameterBuilder.GetSql(_propertyMap.ColumnName);
+			return _parameterFactory.GetSql(_propertyMap.ColumnName);
 		}
 
 		public string UpdateSql(string sql)
 		{
-			return _parameterBuilder.UpdateSql(sql, _propertyMap.ColumnName);
+			return _parameterFactory.UpdateSql(sql, _propertyMap.ColumnName);
 		}
 	}
 
 	public interface ISqlBuilder
 	{
-		string GetSelect(ITypeMap typeMap, IncludedColumns columns, string whereStatement);
+		string GetSelect(ITypeMap typeMap, SqlBuilderColumns columns, string whereStatement);
 		string GetInsert(ITypeMap typeMap);
 		string GetUpdate(ITypeMap typeMap);
 		string GetDelete(ITypeMap typeMap);
 	}
 
-	public enum IncludedColumns
+	public enum SqlBuilderColumns
 	{
 		All,
 		Mapped
 	}
 
-	public interface IParameterBuilder
+	public interface IParameterFactory
 	{
 		IEnumerable<IDataParameter> GetParameters(string columnName);
 		string GetSql(string columnName);
 		string UpdateSql(string sql, string columnName);
 	}
 
-	internal abstract class ParameterBuilder : IParameterBuilder
+	internal abstract class ParameterFactory : IParameterFactory
 	{
 		protected readonly object Value;
 		private readonly string _parameterName;
 
-		protected ParameterBuilder(object value, string parameterName = null)
+		protected ParameterFactory(object value, string parameterName = null)
 		{
 			Value = value;
 			_parameterName = parameterName;
@@ -447,11 +560,11 @@ namespace TinyORM
 		}
 	}
 
-	internal class NoParameterBuilder : IParameterBuilder
+	internal class NoParameterFactory : IParameterFactory
 	{
 		private readonly string _operator;
 
-		public NoParameterBuilder(string @operator)
+		public NoParameterFactory(string @operator)
 		{
 			_operator = @operator;
 		}
@@ -472,11 +585,11 @@ namespace TinyORM
 		}
 	}
 
-	internal class SingleParameterBuilder : ParameterBuilder
+	internal class SingleParameterFactory : ParameterFactory
 	{
 		private readonly string _operator;
 
-		public SingleParameterBuilder(string @operator, object value, string parameterName = null)
+		public SingleParameterFactory(string @operator, object value, string parameterName = null)
 			: base(value, parameterName)
 		{
 			_operator = @operator;
@@ -498,11 +611,11 @@ namespace TinyORM
 		}
 	}
 
-	internal class MultiParameterBuilder : ParameterBuilder
+	internal class MultiParameterFactory : ParameterFactory
 	{
 		private readonly string _operator;
 
-		public MultiParameterBuilder(string @operator, IEnumerable<object> values, string parameterName = null)
+		public MultiParameterFactory(string @operator, IEnumerable<object> values, string parameterName = null)
 			: base(values as ICollection<object> ?? values.ToList(), parameterName)
 		{
 			_operator = @operator;
@@ -543,7 +656,7 @@ namespace TinyORM
 
 	internal class SqlBuilder : ISqlBuilder
 	{
-		public string GetSelect(ITypeMap typeMap, IncludedColumns columns, string whereStatement)
+		public string GetSelect(ITypeMap typeMap, SqlBuilderColumns columns, string whereStatement)
 		{
 			var sql = string.Format("select {0} from {1}", GetColumns(typeMap), GetSchemaAndTable(typeMap));
 			return string.IsNullOrWhiteSpace(whereStatement)
@@ -592,7 +705,7 @@ namespace TinyORM
 
 		private static string GetColumnEqualsParameter(IEnumerable<PropertyMap> propertyMaps)
 		{
-			return string.Join(", ", propertyMaps.Select(x => string.Format("{0} = @{1}", Enclose(x.ColumnName), GetParameter(x))));
+			return string.Join(", ", propertyMaps.Select(x => string.Format("{0} = {1}", Enclose(x.ColumnName), GetParameter(x))));
 		}
 
 		private static string GetParameter(PropertyMap propertyMap)
@@ -666,10 +779,10 @@ namespace TinyORM
 	{
 		// TODO Make this class thread safe
 
-		private readonly DatabaseConfiguration _configuration;
+		private readonly MapConfiguration _configuration;
 		private readonly Dictionary<string, IInstanceMapper> _cache = new Dictionary<string, IInstanceMapper>();
 
-		public InstanceMapperProvider(DatabaseConfiguration configuration)
+		public InstanceMapperProvider(MapConfiguration configuration)
 		{
 			_configuration = configuration;
 		}
@@ -760,64 +873,64 @@ namespace TinyORM
 
 	public static class Is
 	{
-		public static IParameterBuilder Null
+		public static IParameterFactory Null
 		{
-			get { return new NoParameterBuilder("is null"); }
+			get { return new NoParameterFactory("is null"); }
 		}
 
-		public static IParameterBuilder NotNull
+		public static IParameterFactory NotNull
 		{
-			get { return new NoParameterBuilder("is not null"); }
+			get { return new NoParameterFactory("is not null"); }
 		}
 
-		public static IParameterBuilder EqualTo(object value, string parameterName = null)
+		public static IParameterFactory EqualTo(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder("=", value, parameterName);
+			return new SingleParameterFactory("=", value, parameterName);
 		}
 
-		public static IParameterBuilder NotEqualTo(object value, string parameterName = null)
+		public static IParameterFactory NotEqualTo(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder("!=", value, parameterName);
+			return new SingleParameterFactory("!=", value, parameterName);
 		}
 
-		public static IParameterBuilder LessThan(object value, string parameterName = null)
+		public static IParameterFactory LessThan(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder("<", value, parameterName);
+			return new SingleParameterFactory("<", value, parameterName);
 		}
 
-		public static IParameterBuilder LessThanOrEqualTo(object value, string parameterName = null)
+		public static IParameterFactory LessThanOrEqualTo(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder("<=", value, parameterName);
+			return new SingleParameterFactory("<=", value, parameterName);
 		}
 
-		public static IParameterBuilder GreaterThan(object value, string parameterName = null)
+		public static IParameterFactory GreaterThan(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder(">", value, parameterName);
+			return new SingleParameterFactory(">", value, parameterName);
 		}
 
-		public static IParameterBuilder GreaterThanOrEqualTo(object value, string parameterName = null)
+		public static IParameterFactory GreaterThanOrEqualTo(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder(">=", value, parameterName);
+			return new SingleParameterFactory(">=", value, parameterName);
 		}
 
-		public static IParameterBuilder Like(object value, string parameterName = null)
+		public static IParameterFactory Like(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder("like", value, parameterName);
+			return new SingleParameterFactory("like", value, parameterName);
 		}
 
-		public static IParameterBuilder NotLike(object value, string parameterName = null)
+		public static IParameterFactory NotLike(object value, string parameterName = null)
 		{
-			return new SingleParameterBuilder("not like", value, parameterName);
+			return new SingleParameterFactory("not like", value, parameterName);
 		}
 
-		public static IParameterBuilder In(IEnumerable<object> values, string parameterName = null)
+		public static IParameterFactory In(IEnumerable<object> values, string parameterName = null)
 		{
-			return new MultiParameterBuilder("in", values, parameterName);
+			return new MultiParameterFactory("in", values, parameterName);
 		}
 
-		public static IParameterBuilder NotIn(IEnumerable<object> values, string parameterName = null)
+		public static IParameterFactory NotIn(IEnumerable<object> values, string parameterName = null)
 		{
-			return new MultiParameterBuilder("not in", values, parameterName);
+			return new MultiParameterFactory("not in", values, parameterName);
 		}
 	}
 
@@ -927,6 +1040,8 @@ namespace TinyORM
 
 	public class MapConfiguration
 	{
+		private IConnectionStringProvider _connectionStringProvider;
+
 		public MapConfiguration()
 		{
 			Types = new TypeMapDictionary();
@@ -935,6 +1050,7 @@ namespace TinyORM
 		}
 
 		public TypeMapDictionary Types { get; private set; }
+
 		public PredicateCollection<IInstanceFactory> InstanceFactoryProviders { get; private set; }
 		public PredicateCollection<ISaveOperationProvider> SaveOperationProviders { get; private set; }
 
@@ -957,6 +1073,34 @@ namespace TinyORM
 				public Predicate<Type> Predicate;
 				public T Item;
 			}
+		}
+	}
+
+	public interface IConnectionStringProvider
+	{
+		string GetConnectionString();
+		string[] GetConnectionStrings();
+	}
+
+	internal class DefaultConnectionStringProvider : IConnectionStringProvider
+	{
+		public DefaultConnectionStringProvider()
+		{
+			;
+		}
+		public string GetConnectionString()
+		{
+			return NoOp();
+		}
+
+		public string[] GetConnectionStrings()
+		{
+			return new[] { NoOp() };
+		}
+
+		private static string NoOp()
+		{
+			throw new InvalidOperationException("No connection string provider defined.");
 		}
 	}
 

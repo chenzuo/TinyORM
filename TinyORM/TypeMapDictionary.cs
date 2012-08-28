@@ -41,7 +41,7 @@ namespace TinyORM
 			foreach (var property in type.GetProperties())
 			{
 				SqlDbType sqlDbType;
-				if (!SqlDbTypeProvider.TryGetSqlDbType(type, out sqlDbType))
+				if (!SqlDbTypeProvider.TryGetSqlDbType(property.PropertyType, out sqlDbType))
 					continue;
 
 				typeMap.Properties.Add(new PropertyMap

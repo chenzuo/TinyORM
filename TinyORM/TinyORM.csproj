@@ -32,6 +32,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -42,12 +43,11 @@
   <ItemGroup>
     <Compile Include="Column.cs" />
     <Compile Include="CommandBuilder_old.cs" />
-    <Compile Include="Database.cs" />
+    <Compile Include="LINQ.cs" />
     <Compile Include="DatabaseConfiguration.cs" />
     <Compile Include="DatabaseConfigurationBuilder.cs" />
     <Compile Include="DataEntityTuple.cs" />
     <Compile Include="EnumValueSerializer.cs" />
-    <Compile Include="IConnectionStringProvider.cs" />
     <Compile Include="IDatabaseSession.cs" />
     <Compile Include="DefaultInstanceFactory.cs" />
     <Compile Include="IPropertySerializer.cs" />
