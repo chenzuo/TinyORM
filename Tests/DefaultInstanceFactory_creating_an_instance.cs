@@ -10,7 +10,7 @@ namespace TinyORM.Tests
 		{
 			var instance = new DefaultInstanceFactory().CreateInstance(typeof(Foobar));
 
-			Assert.That(instance, Is.Not.Null);
+			Assert.That(instance, NUnit.Framework.Is.Not.Null);
 		}
 
 		[Test]

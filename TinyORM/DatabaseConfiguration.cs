@@ -1,6 +1,6 @@
 ﻿namespace TinyORM
 {
-	public class DatabaseConfiguration : TypeConfiguration
+	public class DatabaseConfiguration : MapConfiguration
 	{
 		public IConnectionStringProvider ConnectionStringProvider { get; set; }
 	}

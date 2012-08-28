@@ -19,7 +19,7 @@ namespace TinyORM
 				var expression = new TypeMapBuilder<T>();
 				action(expression);
 				var typeMap = ((ITypeMapProvider)expression).GetTypeMap();
-				_configuration.TypeMaps.Add(typeMap.Type, typeMap);
+				_configuration.Types.Add(typeMap.Type, typeMap);
 			}
 		}
 
@@ -40,7 +40,7 @@ namespace TinyORM
 			{
 				var typeMapProvider = (ITypeMapProvider)Activator.CreateInstance(x);
 				var typeMap = typeMapProvider.GetTypeMap();
-				_configuration.TypeMaps.Add(typeMap.Type, typeMap);
+				_configuration.Types.Add(typeMap.Type, typeMap);
 			}
 		}
 

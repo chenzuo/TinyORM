@@ -7,10 +7,10 @@ namespace TinyORM
 	public class CommandBuilder_old
 	{
 		private readonly IDbCommand _command;
-		private readonly TypeConfiguration _configuration;
+		private readonly MapConfiguration _configuration;
 		private IDictionary<string, List<PropertyGetter>> _cache;
 
-		public CommandBuilder_old(IDbCommand command, TypeConfiguration configuration)
+		public CommandBuilder_old(IDbCommand command, MapConfiguration configuration)
 		{
 			_command = command;
 			_configuration = configuration;
@@ -38,7 +38,7 @@ namespace TinyORM
 		//   List<PropertyGetter> propertyGetters;
 		//   if (!_cache.TryGetValue(key, out propertyGetters))
 		//   {
-		//      var typeMap = _configuration.TypeMaps.GetOrCreate(mapType ?? @params.GetType());
+		//      var typeMap = _configuration.Types.GetOrCreate(mapType ?? @params.GetType());
 		//      var propertyMaps = typeMap.Properties.ToDictionary(x => x.PropertyName.ToLower());
 		//      foreach (var pair in propertyMaps.Where(pair => pair.Key.Contains(".")))
 		//         propertyMaps.Add(pair.Key.Replace(".", ""), pair.Value);
