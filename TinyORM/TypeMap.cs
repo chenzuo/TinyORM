@@ -3,29 +3,24 @@ using System.Collections.Generic;
 
 namespace TinyORM
 {
-	public interface ITypeMap
+	public interface ITableMap
 	{
 		Type Type { get; }
 		string Table { get; }
-		string Namespace { get; }
-		IEnumerable<PropertyMap> Properties { get; }
+		string Schema { get; }
+		IEnumerable<IColumnMap> Columns { get; }
 	}
 
-	public class TypeMap : ITypeMap
+	public class TableMap : ITableMap
 	{
-		public TypeMap()
+		public TableMap()
 		{
-			Properties = new List<PropertyMap>();
+			Columns = new List<ColumnMap>();
 		}
 
 		public Type Type { get; set; }
 		public string Table { get; set; }
-		public string Namespace { get; set; }
-		public List<PropertyMap> Properties { get; private set; }
-
-		IEnumerable<PropertyMap> ITypeMap.Properties
-		{
-			get { return Properties; }
-		}
+		public string Schema { get; set; }
+		public IEnumerable<IColumnMap> Columns { get; set; }
 	}
 }

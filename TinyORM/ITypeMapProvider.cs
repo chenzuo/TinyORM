@@ -2,6 +2,6 @@ namespace TinyORM
 {
 	public interface ITypeMapProvider
 	{
-		TypeMap GetTypeMap();
+		TableMap GetTypeMap(IDefaultsGetter defaults);
 	}
 }

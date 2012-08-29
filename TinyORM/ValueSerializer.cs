@@ -19,6 +19,12 @@ namespace TinyORM
 			return Deserialize((TData)data);
 		}
 
+		public object Serialize(object value)
+		{
+			return Serialize((TValue)value);
+		}
+
 		protected abstract TValue Deserialize(TData data);
+		protected abstract TData Serialize(TValue value);
 	}
 }

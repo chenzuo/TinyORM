@@ -7,7 +7,7 @@ namespace TinyORM
 {
 	public class DataParametersMapper
 	{
-		public IEnumerable<IDataParameter> Map(object input, TypeMap typeMap)
+		public IEnumerable<IDataParameter> Map(object input, TableMap tableMap)
 		{
 			if (input == null)
 				return Enumerable.Empty<IDataParameter>();

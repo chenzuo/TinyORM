@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -7,7 +8,15 @@ namespace TinyORM
 {
 	internal class PropertySetter
 	{
+		private static readonly ConcurrentDictionary<int, PropertySetter> Cache = new ConcurrentDictionary<int, PropertySetter>();
+
 		public static PropertySetter Create(Type targetType, string propertyName)
+		{
+			var key = (targetType.FullName + propertyName).GetHashCode();
+			return Cache.GetOrAdd(key, _ => CreateInstance(targetType, propertyName));
+		}
+
+		private static PropertySetter CreateInstance(Type targetType, string propertyName)
 		{
 			if (!propertyName.Contains('.'))
 				return new PropertySetter(targetType, propertyName);
@@ -61,7 +70,7 @@ namespace TinyORM
 		private class PropertyChainSetter : PropertySetter
 		{
 			private readonly IEnumerable<PropertyGetter> _getters;
-			private readonly PropertySetter _setter;
+			private new readonly PropertySetter _setter;
 
 			internal PropertyChainSetter(Type targetType, string propertyName, IEnumerable<PropertyGetter> getters, PropertySetter setter)
 				: base(targetType, propertyName)

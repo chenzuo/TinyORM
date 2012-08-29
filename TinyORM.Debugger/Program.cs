@@ -8,13 +8,15 @@ namespace TinyORM.Debugger
 		public static void Main()
 		{
 			var db = new Database();
-			db.Configure(x =>
-				{
-					x.ConnectionStringProvider(new ConnectionStringProvider("sqldev02", "Sandbox"));
-					x.AddMapsFromAssemblyContaining<ItemMap>();
-				});
+			db.Configure(x => x.ConnectionStringProvider(new ConnectionStringProvider("sqldev02", "Sandbox")));
 
-			db.Execute("update item set number = 2 where id = 'F2608C87-CAF8-4B9F-97A0-83CECA9ED5D6'");
+			var ids = new[] { 1, 2 };
+			var enumerable = db.Query("select * from item");
+			var items1 = db.Query<Item>("select * from item");
+
+			db.Configure(x => x.AddMapsFromAssemblyContaining<ItemMap>());
+
+			var items2 = db.Query<Item>(new { number = Is.In(ids.Cast<object>()) });
 		}
 	}
 
@@ -22,9 +24,9 @@ namespace TinyORM.Debugger
 	{
 		public ItemMap()
 		{
-			Id(x => x.Number);
+			Key(x => x.Number);
 			Value(x => x.Id);
-			Value(x => x.Text);
+			Value(x => x.Info, new Column { Name = "Text" });
 			Value(x => x.Timestamp);
 		}
 	}
@@ -56,7 +58,7 @@ namespace TinyORM.Debugger
 		public Guid Id { get; set; }
 		public int Number { get; set; }
 		public DateTimeOffset Timestamp { get; set; }
-		public string Text { get; set; }
+		public string Info { get; set; }
 	}
 
 	public class Foobar

@@ -42,7 +42,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Column.cs" />
-    <Compile Include="CommandBuilder_old.cs" />
     <Compile Include="LINQ.cs" />
     <Compile Include="DatabaseConfiguration.cs" />
     <Compile Include="DatabaseConfigurationBuilder.cs" />
@@ -63,9 +62,8 @@
     <Compile Include="SqlDbTypeProvider.cs" />
     <Compile Include="TypeMap.cs" />
     <Compile Include="TypeMapBuilder.cs" />
-    <Compile Include="TypeMapDictionary.cs" />
+    <Compile Include="TableMapDictionary.cs" />
     <Compile Include="ValueSerializer.cs" />
-    <Compile Include="ValueSerializerProvider.cs" />
     <Compile Include="XmlValueSerializer.cs" />
     <Compile Include="XmlSerializer.cs" />
   </ItemGroup>

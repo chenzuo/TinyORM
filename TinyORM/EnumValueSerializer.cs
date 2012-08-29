@@ -7,12 +7,12 @@ namespace TinyORM
 	{
 		public Type DataType
 		{
-			get { return typeof(T); }
+			get { return Enum.GetUnderlyingType(typeof(T)); }
 		}
 
 		public Type ValueType
 		{
-			get { throw new NotImplementedException(); }
+			get { return typeof(T); }
 		}
 
 		public object Deserialize(object data)
@@ -27,6 +27,11 @@ namespace TinyORM
 			if (dataString == valueString)
 				throw new InvalidCastException(string.Format("'{0}' is not a valid value for {1}", valueString, type));
 			return value;
+		}
+
+		public object Serialize(object value)
+		{
+			return value == null ? null : Convert.ChangeType(value, DataType);
 		}
 	}
 }

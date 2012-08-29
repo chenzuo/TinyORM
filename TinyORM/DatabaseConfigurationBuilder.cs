@@ -13,22 +13,27 @@ namespace TinyORM
 			_configuration = configuration;
 		}
 
+		public IDefaultsSetter Defaults
+		{
+			get { return _configuration.Defaults; }
+		}
+
 		public void Map<T>(Action<TypeMapBuilder<T>> action)
 		{
 			var expression = new TypeMapBuilder<T>();
 			action(expression);
-			var typeMap = ((ITypeMapProvider)expression).GetTypeMap();
+			var typeMap = ((ITypeMapProvider)expression).GetTypeMap(_configuration.Defaults);
 			AddMaps(new[] { typeMap });
 		}
 
-		public void AddInstanceFactory(Predicate<Type> predicate, IInstanceFactory instanceFactory)
+		public void AddInstanceFactory(IInstanceFactory instanceFactory)
 		{
-			_configuration.InstanceFactoryProviders.Add(predicate, instanceFactory);
+			_configuration.InstanceFactoryProviders.Add(instanceFactory);
 		}
 
-		public void AddSaveOperationProvider(Predicate<Type> predicate, ISaveOperationProvider saveOperationProvider)
+		public void AddSaveOperationProvider(ISaveOperationProvider saveOperationProvider)
 		{
-			_configuration.SaveOperationProviders.Add(predicate, saveOperationProvider);
+			_configuration.SaveOperationProviders.Add(saveOperationProvider);
 		}
 
 		public void ConnectionStringProvider(IConnectionStringProvider connectionStringProvider)
@@ -41,7 +46,7 @@ namespace TinyORM
 			var typeMaps = from type in referenceType.Assembly.GetTypes()
 								where !type.IsAbstract && typeof(ITypeMapProvider).IsAssignableFrom(type)
 								let typeMapProvider = (ITypeMapProvider)Activator.CreateInstance(type)
-								select typeMapProvider.GetTypeMap();
+								select typeMapProvider.GetTypeMap(_configuration.Defaults);
 			AddMaps(typeMaps.ToList());
 		}
 
@@ -55,11 +60,11 @@ namespace TinyORM
 			AddMapsFromAssemblyContaining(o.GetType());
 		}
 
-		private void AddMaps(IEnumerable<TypeMap> typeMaps)
+		private void AddMaps(IEnumerable<TableMap> typeMaps)
 		{
 			lock (_configuration)
 				foreach (var typeMap in typeMaps)
-					_configuration.Types.Add(typeMap.Type, typeMap);
+					_configuration.Tables.Add(typeMap.Type, typeMap);
 		}
 	}
 }

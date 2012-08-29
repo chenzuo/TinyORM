@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -7,9 +8,16 @@ namespace TinyORM
 {
 	internal class PropertyGetter
 	{
+		private static readonly ConcurrentDictionary<int, PropertyGetter> Cache = new ConcurrentDictionary<int, PropertyGetter>();
 		private volatile Func<object, object> _getter;
 
 		public static PropertyGetter Create(Type sourceType, string propertyName)
+		{
+			var key = (sourceType.FullName + propertyName).GetHashCode();
+			return Cache.GetOrAdd(key, _ => CreateInstance(sourceType, propertyName));
+		}
+
+		private static PropertyGetter CreateInstance(Type sourceType, string propertyName)
 		{
 			if (!propertyName.Contains('.'))
 				return new PropertyGetter(sourceType, propertyName);

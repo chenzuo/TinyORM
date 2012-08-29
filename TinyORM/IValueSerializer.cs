@@ -8,5 +8,6 @@ namespace TinyORM
 		Type ValueType { get; }
 
 		object Deserialize(object data);
+		object Serialize(object value);
 	}
 }
